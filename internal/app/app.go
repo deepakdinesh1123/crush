@@ -44,8 +44,8 @@ type App struct {
 	config *config.Config
 
 	serviceEventsWG *sync.WaitGroup
-	eventsCtx       context.Context
-	events          chan tea.Msg
+	EventsCtx       context.Context
+	Events          chan tea.Msg
 	tuiWG           *sync.WaitGroup
 
 	// global context and cleanup functions
@@ -78,7 +78,7 @@ func New(ctx context.Context, conn *sql.DB, cfg *config.Config) (*App, error) {
 
 		watcherCancelFuncs: csync.NewSlice[context.CancelFunc](),
 
-		events:          make(chan tea.Msg, 100),
+		Events:          make(chan tea.Msg, 100),
 		serviceEventsWG: &sync.WaitGroup{},
 		tuiWG:           &sync.WaitGroup{},
 	}
@@ -213,14 +213,14 @@ func (app *App) UpdateAgentModel() error {
 
 func (app *App) setupEvents() {
 	ctx, cancel := context.WithCancel(app.globalCtx)
-	app.eventsCtx = ctx
-	setupSubscriber(ctx, app.serviceEventsWG, "sessions", app.Sessions.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "messages", app.Messages.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "permissions", app.Permissions.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "permissions-notifications", app.Permissions.SubscribeNotifications, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "history", app.History.Subscribe, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "mcp", agent.SubscribeMCPEvents, app.events)
-	setupSubscriber(ctx, app.serviceEventsWG, "lsp", SubscribeLSPEvents, app.events)
+	app.EventsCtx = ctx
+	setupSubscriber(ctx, app.serviceEventsWG, "sessions", app.Sessions.Subscribe, app.Events)
+	setupSubscriber(ctx, app.serviceEventsWG, "messages", app.Messages.Subscribe, app.Events)
+	setupSubscriber(ctx, app.serviceEventsWG, "permissions", app.Permissions.Subscribe, app.Events)
+	setupSubscriber(ctx, app.serviceEventsWG, "permissions-notifications", app.Permissions.SubscribeNotifications, app.Events)
+	setupSubscriber(ctx, app.serviceEventsWG, "history", app.History.Subscribe, app.Events)
+	setupSubscriber(ctx, app.serviceEventsWG, "mcp", agent.SubscribeMCPEvents, app.Events)
+	setupSubscriber(ctx, app.serviceEventsWG, "lsp", SubscribeLSPEvents, app.Events)
 	cleanupFunc := func() {
 		cancel()
 		app.serviceEventsWG.Wait()
@@ -284,7 +284,7 @@ func (app *App) InitCoderAgent() error {
 	// Add MCP client cleanup to shutdown process
 	app.cleanupFuncs = append(app.cleanupFuncs, agent.CloseMCPClients)
 
-	setupSubscriber(app.eventsCtx, app.serviceEventsWG, "coderAgent", app.CoderAgent.Subscribe, app.events)
+	setupSubscriber(app.EventsCtx, app.serviceEventsWG, "coderAgent", app.CoderAgent.Subscribe, app.Events)
 	return nil
 }
 
@@ -309,7 +309,7 @@ func (app *App) Subscribe(program *tea.Program) {
 		case <-tuiCtx.Done():
 			slog.Debug("TUI message handler shutting down")
 			return
-		case msg, ok := <-app.events:
+		case msg, ok := <-app.Events:
 			if !ok {
 				slog.Debug("TUI message channel closed")
 				return
