@@ -2,11 +2,13 @@ package acpagent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log/slog"
 
 	"github.com/charmbracelet/crush/internal/app"
+	"github.com/charmbracelet/crush/internal/llm/agent"
 	"github.com/charmbracelet/crush/internal/message"
-	"github.com/charmbracelet/crush/internal/pubsub"
 	acp "github.com/zed-industries/agent-client-protocol/go"
 )
 
@@ -29,7 +31,7 @@ func (a *ACPAgent) Initialize(ctx context.Context, params acp.InitializeRequest)
 		AgentCapabilities: acp.AgentCapabilities{
 			LoadSession: false,
 			PromptCapabilities: acp.PromptCapabilities{
-				EmbeddedContext: true,
+				EmbeddedContext: false,
 			},
 		},
 	}, nil
@@ -43,7 +45,9 @@ func (a *ACPAgent) NewSession(ctx context.Context, params acp.NewSessionRequest)
 	return acp.NewSessionResponse{SessionId: acp.SessionId(sesh.ID)}, nil
 }
 
-func (a *ACPAgent) LoadSession(ctx context.Context, lsr acp.LoadSessionRequest) error { return nil }
+func (a *ACPAgent) LoadSession(ctx context.Context, lsr acp.LoadSessionRequest) error {
+	return nil
+}
 
 func (a *ACPAgent) Cancel(ctx context.Context, params acp.CancelNotification) error {
 	_, err := a.app.Sessions.Get(ctx, string(params.SessionId))
@@ -61,45 +65,91 @@ func (a *ACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Pr
 		return acp.PromptResponse{}, fmt.Errorf("session %s not found", string(params.SessionId))
 	}
 
-	// cancel any previous turn
-	// if s.cancel != nil {
-	// 	s.cancel()
-	// }
-	ctx = context.Background()
-	// s.cancel = cancel
-
 	content := ""
-
 	for _, cont := range params.Prompt {
-		content = content + cont.Text.Text + " "
+		if cont.Text != nil {
+			content += cont.Text.Text + " "
+		}
 	}
-	_, err = a.app.CoderAgent.Run(ctx, string(params.SessionId), content)
+
+	done, err := a.app.CoderAgent.Run(ctx, string(params.SessionId), content)
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
+
+	messageEvents := a.app.Messages.Subscribe(ctx)
+
 	for {
 		select {
-		case <-a.app.EventsCtx.Done():
-			return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
-		case event := <-a.app.Events:
-			switch event := event.(type) {
-			case pubsub.Event[message.Message]:
-				a.conn.SessionUpdate(ctx, acp.SessionNotification{
-					SessionId: params.SessionId,
-					Update: acp.SessionUpdate{
-						UserMessageChunk: &acp.SessionUpdateUserMessageChunk{
-							SessionUpdate: "agent_message_chunk",
-							Content: acp.ContentBlock{
-								Text: &acp.ContentBlockText{
-									Text: event.Payload.Content().Text,
-									Type: "text",
-								},
-							},
-						},
-					},
-				})
+		case result := <-done:
+			if result.Error != nil {
+				if errors.Is(result.Error, context.Canceled) || errors.Is(result.Error, agent.ErrRequestCancelled) {
+					slog.Info("agent processing cancelled", "session_id", params.SessionId)
+					return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
+				}
+				return acp.PromptResponse{StopReason: acp.StopReasonCancelled}, nil
 			}
-		default:
+		case event, ok := <-messageEvents:
+			if !ok {
+				// Stream closed, agent finished
+				return acp.PromptResponse{StopReason: acp.StopReasonEndTurn}, nil
+			}
+
+			switch event.Payload.Role {
+			case message.Assistant:
+				for _, part := range event.Payload.Parts {
+					switch part := part.(type) {
+					case message.ReasoningContent:
+						if a.conn != nil {
+							if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
+								SessionId: params.SessionId,
+								Update: acp.SessionUpdate{
+									AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+										SessionUpdate: "agent_thought_chunk",
+										Content: acp.ContentBlock{
+											Text: &acp.ContentBlockText{
+												Text: part.Thinking,
+												Type: "text",
+											},
+										},
+									},
+								},
+							}); err != nil {
+								slog.Error("error sending", "agent thought chunk", err)
+								continue
+							}
+						}
+					case message.BinaryContent:
+					case message.ImageURLContent:
+					case message.Finish:
+					case message.TextContent:
+						if a.conn != nil {
+							if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
+								SessionId: params.SessionId,
+								Update: acp.SessionUpdate{
+									AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+										SessionUpdate: "agent_message_chunk",
+										Content: acp.ContentBlock{
+											Text: &acp.ContentBlockText{
+												Text: part.Text,
+												Type: "text",
+											},
+										},
+									},
+								},
+							}); err != nil {
+								slog.Error("error sending", "agent text chunk", err)
+								continue
+							}
+						}
+					case message.ToolCall:
+					case message.ToolResult:
+					}
+				}
+			case message.System:
+			case message.Tool:
+			case message.User:
+			}
 		}
 	}
 
