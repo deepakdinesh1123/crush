@@ -34,6 +34,9 @@ type Client struct {
 	// File types this LSP server handles (e.g., .go, .rs, .py)
 	fileTypes []string
 
+	// Server Initialization Options
+	initializationOptions any
+
 	// Diagnostic change callback
 	onDiagnosticsChanged func(name string, count int)
 
@@ -103,6 +106,7 @@ func NewClient(ctx context.Context, name string, config config.LSPConfig) (*Clie
 		serverRequestHandlers: make(map[string]ServerRequestHandler),
 		diagnostics:           make(map[protocol.DocumentURI][]protocol.Diagnostic),
 		openFiles:             make(map[string]*OpenFileInfo),
+		initializationOptions: config.InitializationOptions,
 	}
 
 	// Initialize server state
@@ -211,17 +215,7 @@ func (c *Client) InitializeLSPClient(ctx context.Context, workspaceDir string) (
 				},
 				Window: protocol.WindowClientCapabilities{},
 			},
-			InitializationOptions: map[string]any{
-				"codelenses": map[string]bool{
-					"generate":           true,
-					"regenerate_cgo":     true,
-					"test":               true,
-					"tidy":               true,
-					"upgrade_dependency": true,
-					"vendor":             true,
-					"vulncheck":          false,
-				},
-			},
+			InitializationOptions: c.initializationOptions,
 		},
 	}
 

@@ -362,6 +362,20 @@ var defaultLSPFileTypes = map[string][]string{
 	"zls":                        {"zig"},
 }
 
+var defaultLSPInitializationOptions = map[string]any{
+	"gopls": map[string]map[string]bool{
+		"codelenses": {
+			"generate":           true,
+			"regenerate_cgo":     true,
+			"test":               true,
+			"tidy":               true,
+			"upgrade_dependency": true,
+			"vendor":             true,
+			"vulncheck":          false,
+		},
+	},
+}
+
 // applyDefaultLSPFileTypes sets default file types for known LSP servers
 func applyDefaultLSPFileTypes(lspConfigs map[string]LSPConfig) {
 	for name, config := range lspConfigs {
@@ -369,8 +383,25 @@ func applyDefaultLSPFileTypes(lspConfigs map[string]LSPConfig) {
 			continue
 		}
 		bin := strings.ToLower(filepath.Base(config.Command))
-		config.FileTypes = defaultLSPFileTypes[bin]
-		lspConfigs[name] = config
+		dft, ok := defaultLSPFileTypes[bin]
+		if ok {
+			config.FileTypes = dft
+			lspConfigs[name] = config
+		}
+	}
+}
+
+func applyDefaultLSPInitializationOptions(lspConfigs map[string]LSPConfig) {
+	for name, config := range lspConfigs {
+		if config.InitializationOptions != nil {
+			continue
+		}
+		bin := strings.ToLower(filepath.Base(config.Command))
+		dio, ok := defaultLSPInitializationOptions[bin]
+		if ok {
+			config.InitializationOptions = dio
+			lspConfigs[name] = config
+		}
 	}
 }
 

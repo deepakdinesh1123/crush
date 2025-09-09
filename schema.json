@@ -73,6 +73,9 @@
         "options": {
           "description": "LSP server-specific configuration options"
         },
+        "initializationOptions": {
+          "description": "Initialization options passed to the LSP server during initialization. Can be any JSON value (object"
+        },
         "filetypes": {
           "items": {
             "type": "string",
