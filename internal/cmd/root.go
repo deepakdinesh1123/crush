@@ -29,6 +29,7 @@ func init() {
 
 	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(acpCmd)
+	rootCmd.AddCommand(updateProvidersCmd)
 }
 
 var rootCmd = &cobra.Command{
