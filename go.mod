@@ -41,7 +41,7 @@ require (
 	github.com/srwiley/rasterx v0.0.0-20220730225603-2ab79fcdd4ef
 	github.com/stretchr/testify v1.11.0
 	github.com/tidwall/sjson v1.2.5
-	github.com/zed-industries/agent-client-protocol/go v0.0.0-00010101000000-000000000000
+	github.com/zed-industries/agent-client-protocol v0.0.0-00010101000000-000000000000
 	github.com/zeebo/xxh3 v1.0.2
 	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	mvdan.cc/sh/v3 v3.12.1-0.20250902163504-3cf4fd5717a5
@@ -157,4 +157,4 @@ require (
 	mvdan.cc/sh/moreinterp v0.0.0-20250902163504-3cf4fd5717a5
 )
 
-replace github.com/zed-industries/agent-client-protocol/go => github.com/coder/agent-client-protocol/go v0.0.0-20250902191026-43d82f008ab7
+replace github.com/zed-industries/agent-client-protocol => github.com/coder/agent-client-protocol v0.0.0-20250912084708-f952023e8969

@@ -53,9 +53,12 @@ func (a *ACPAgent) Cancel(ctx context.Context, params acp.CancelNotification) er
 	_, err := a.app.Sessions.Get(ctx, string(params.SessionId))
 	if err != nil {
 		return err
-	} else {
-		a.app.Sessions.Delete(ctx, string(params.SessionId))
 	}
+
+	if a.app.CoderAgent != nil {
+		a.app.CoderAgent.Cancel(string(params.SessionId))
+	}
+
 	return nil
 }
 
@@ -72,12 +75,16 @@ func (a *ACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Pr
 		}
 	}
 
-	done, err := a.app.CoderAgent.Run(ctx, string(params.SessionId), content)
+	done, err := a.app.CoderAgent.Run(context.Background(), string(params.SessionId), content)
 	if err != nil {
 		return acp.PromptResponse{}, err
 	}
 
 	messageEvents := a.app.Messages.Subscribe(ctx)
+
+	// Track sent content to only send deltas
+	var lastTextSent string
+	var lastThinkingSent string
 
 	for {
 		select {
@@ -100,47 +107,57 @@ func (a *ACPAgent) Prompt(ctx context.Context, params acp.PromptRequest) (acp.Pr
 				for _, part := range event.Payload.Parts {
 					switch part := part.(type) {
 					case message.ReasoningContent:
-						if a.conn != nil {
-							if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
-								SessionId: params.SessionId,
-								Update: acp.SessionUpdate{
-									AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
-										SessionUpdate: "agent_thought_chunk",
-										Content: acp.ContentBlock{
-											Text: &acp.ContentBlockText{
-												Text: part.Thinking,
-												Type: "text",
+						// Only send the delta (new thinking content)
+						if len(part.Thinking) > len(lastThinkingSent) {
+							delta := part.Thinking[len(lastThinkingSent):]
+							if a.conn != nil && delta != "" {
+								if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
+									SessionId: params.SessionId,
+									Update: acp.SessionUpdate{
+										AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+											SessionUpdate: "agent_thought_chunk",
+											Content: acp.ContentBlock{
+												Text: &acp.ContentBlockText{
+													Text: delta,
+													Type: "text",
+												},
 											},
 										},
 									},
-								},
-							}); err != nil {
-								slog.Error("error sending", "agent thought chunk", err)
-								continue
+								}); err != nil {
+									slog.Error("error sending agent thought chunk", err)
+									continue
+								}
 							}
+							lastThinkingSent = part.Thinking
 						}
 					case message.BinaryContent:
 					case message.ImageURLContent:
 					case message.Finish:
 					case message.TextContent:
-						if a.conn != nil {
-							if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
-								SessionId: params.SessionId,
-								Update: acp.SessionUpdate{
-									AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
-										SessionUpdate: "agent_message_chunk",
-										Content: acp.ContentBlock{
-											Text: &acp.ContentBlockText{
-												Text: part.Text,
-												Type: "text",
+						// Only send the delta (new text content)
+						if len(part.Text) > len(lastTextSent) {
+							delta := part.Text[len(lastTextSent):]
+							if a.conn != nil && delta != "" {
+								if err := a.conn.SessionUpdate(ctx, acp.SessionNotification{
+									SessionId: params.SessionId,
+									Update: acp.SessionUpdate{
+										AgentMessageChunk: &acp.SessionUpdateAgentMessageChunk{
+											SessionUpdate: "agent_message_chunk",
+											Content: acp.ContentBlock{
+												Text: &acp.ContentBlockText{
+													Text: delta,
+													Type: "text",
+												},
 											},
 										},
 									},
-								},
-							}); err != nil {
-								slog.Error("error sending", "agent text chunk", err)
-								continue
+								}); err != nil {
+									slog.Error("error sending agent text chunk", err)
+									continue
+								}
 							}
+							lastTextSent = part.Text
 						}
 					case message.ToolCall:
 					case message.ToolResult:
